@@ -31,7 +31,7 @@ func NewProxy(proxyName, addr, trans string) *Proxy {
 		addr:        addr,
 		fails:       0,
 		probe:       up.New(),
-		readTimeout: 2 * time.Second,
+		readTimeout: 120 * time.Second,
 		transport:   newTransport(proxyName, addr),
 		health:      NewHealthChecker(proxyName, trans, true, "."),
 		proxyName:   proxyName,
