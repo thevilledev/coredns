@@ -3,6 +3,7 @@ package proxy
 import (
 	"crypto/tls"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/miekg/dns"
@@ -23,10 +24,8 @@ type Transport struct {
 	tlsConfig   *tls.Config
 	proxyName   string
 
-	dial  chan string
-	yield chan *persistConn
-	ret   chan *persistConn
-	stop  chan bool
+	sync.Mutex
+	stop chan bool
 }
 
 func newTransport(proxyName, addr string) *Transport {
@@ -35,9 +34,6 @@ func newTransport(proxyName, addr string) *Transport {
 		conns:       [typeTotalCount][]*persistConn{},
 		expire:      defaultExpire,
 		addr:        addr,
-		dial:        make(chan string),
-		yield:       make(chan *persistConn),
-		ret:         make(chan *persistConn),
 		stop:        make(chan bool),
 		proxyName:   proxyName,
 	}
@@ -48,38 +44,12 @@ func newTransport(proxyName, addr string) *Transport {
 func (t *Transport) connManager() {
 	ticker := time.NewTicker(defaultExpire)
 	defer ticker.Stop()
-Wait:
 	for {
 		select {
-		case proto := <-t.dial:
-			transtype := stringToTransportType(proto)
-			// take the last used conn - complexity O(1)
-			if stack := t.conns[transtype]; len(stack) > 0 {
-				pc := stack[len(stack)-1]
-				if time.Since(pc.used) < t.expire {
-					// Found one, remove from pool and return this conn.
-					t.conns[transtype] = stack[:len(stack)-1]
-					t.ret <- pc
-					continue Wait
-				}
-				// clear entire cache if the last conn is expired
-				t.conns[transtype] = nil
-				// now, the connections being passed to closeConns() are not reachable from
-				// transport methods anymore. So, it's safe to close them in a separate goroutine
-				go closeConns(stack)
-			}
-			t.ret <- nil
-
-		case pc := <-t.yield:
-			transtype := t.transportTypeFromConn(pc)
-			t.conns[transtype] = append(t.conns[transtype], pc)
-
 		case <-ticker.C:
 			t.cleanup(false)
-
 		case <-t.stop:
 			t.cleanup(true)
-			close(t.ret)
 			return
 		}
 	}
@@ -94,6 +64,8 @@ func closeConns(conns []*persistConn) {
 
 // cleanup removes connections from cache.
 func (t *Transport) cleanup(all bool) {
+	t.Lock()
+	defer t.Unlock()
 	staleTime := time.Now().Add(-t.expire)
 	for transtype, stack := range t.conns {
 		if len(stack) == 0 {
@@ -121,28 +93,24 @@ func (t *Transport) cleanup(all bool) {
 	}
 }
 
-// It is hard to pin a value to this, the import thing is to no block forever, losing at cached connection is not terrible.
-const yieldTimeout = 25 * time.Millisecond
-
 // Yield returns the connection to transport for reuse.
 func (t *Transport) Yield(pc *persistConn) {
 	pc.used = time.Now() // update used time
 
-	// Optimization: Try to return the connection immediately without creating a timer.
-	// If the receiver is not ready, we fall back to a timeout-based send to avoid blocking forever.
-	// Returning the connection is just an optimization, so dropping it on timeout is fine.
+	t.Lock()
+	defer t.Unlock()
+
+	// Check if transport is stopped
 	select {
-	case t.yield <- pc:
+	case <-t.stop:
+		// If stopped, don't return to pool, just close
+		go pc.c.Close()
 		return
 	default:
 	}
 
-	select {
-	case t.yield <- pc:
-		return
-	case <-time.After(yieldTimeout):
-		return
-	}
+	transtype := t.transportTypeFromConn(pc)
+	t.conns[transtype] = append(t.conns[transtype], pc)
 }
 
 // Start starts the transport's connection manager.
