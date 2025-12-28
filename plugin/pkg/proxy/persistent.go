@@ -17,12 +17,13 @@ type persistConn struct {
 
 // Transport hold the persistent cache.
 type Transport struct {
-	avgDialTime int64                          // kind of average time of dial time
-	conns       [typeTotalCount][]*persistConn // Buckets for udp, tcp and tcp-tls.
-	expire      time.Duration                  // After this duration a connection is expired.
-	addr        string
-	tlsConfig   *tls.Config
-	proxyName   string
+	avgDialTime  int64                          // kind of average time of dial time
+	conns        [typeTotalCount][]*persistConn // Buckets for udp, tcp and tcp-tls.
+	expire       time.Duration                  // After this duration a connection is expired.
+	maxIdleConns int                            // Max idle connections per transport type; 0 means unlimited.
+	addr         string
+	tlsConfig    *tls.Config
+	proxyName    string
 
 	mu   sync.Mutex
 	stop chan struct{}
@@ -109,6 +110,13 @@ func (t *Transport) Yield(pc *persistConn) {
 
 	t.mu.Lock()
 	transtype := t.transportTypeFromConn(pc)
+
+	if t.maxIdleConns > 0 && len(t.conns[transtype]) >= t.maxIdleConns {
+		t.mu.Unlock()
+		pc.c.Close()
+		return
+	}
+
 	t.conns[transtype] = append(t.conns[transtype], pc)
 	t.mu.Unlock()
 }
@@ -121,6 +129,10 @@ func (t *Transport) Stop() { close(t.stop) }
 
 // SetExpire sets the connection expire time in transport.
 func (t *Transport) SetExpire(expire time.Duration) { t.expire = expire }
+
+// SetMaxIdleConns sets the maximum idle connections per transport type.
+// A value of 0 means unlimited (default).
+func (t *Transport) SetMaxIdleConns(n int) { t.maxIdleConns = n }
 
 // SetTLSConfig sets the TLS config in transport.
 func (t *Transport) SetTLSConfig(cfg *tls.Config) { t.tlsConfig = cfg }
