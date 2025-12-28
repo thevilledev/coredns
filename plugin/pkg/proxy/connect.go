@@ -18,10 +18,7 @@ import (
 )
 
 const (
-	ErrTransportStopped              = "proxy: transport stopped"
-	ErrTransportStoppedDuringDial    = "proxy: transport stopped during dial"
-	ErrTransportStoppedRetClosed     = "proxy: transport stopped, ret channel closed"
-	ErrTransportStoppedDuringRetWait = "proxy: transport stopped during ret wait"
+	ErrTransportStopped = "proxy: transport stopped"
 )
 
 // limitTimeout is a utility function to auto-tune timeout values
