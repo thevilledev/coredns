@@ -24,8 +24,8 @@ type Transport struct {
 	tlsConfig   *tls.Config
 	proxyName   string
 
-	sync.Mutex
-	stop chan bool
+	mu   sync.Mutex
+	stop chan struct{}
 }
 
 func newTransport(proxyName, addr string) *Transport {
@@ -34,7 +34,7 @@ func newTransport(proxyName, addr string) *Transport {
 		conns:       [typeTotalCount][]*persistConn{},
 		expire:      defaultExpire,
 		addr:        addr,
-		stop:        make(chan bool),
+		stop:        make(chan struct{}),
 		proxyName:   proxyName,
 	}
 	return t
@@ -64,8 +64,8 @@ func closeConns(conns []*persistConn) {
 
 // cleanup removes connections from cache.
 func (t *Transport) cleanup(all bool) {
-	t.Lock()
-	defer t.Unlock()
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	staleTime := time.Now().Add(-t.expire)
 	for transtype, stack := range t.conns {
 		if len(stack) == 0 {
@@ -95,22 +95,21 @@ func (t *Transport) cleanup(all bool) {
 
 // Yield returns the connection to transport for reuse.
 func (t *Transport) Yield(pc *persistConn) {
-	pc.used = time.Now() // update used time
-
-	t.Lock()
-	defer t.Unlock()
-
-	// Check if transport is stopped
+	// Check if transport is stopped before acquiring lock
 	select {
 	case <-t.stop:
 		// If stopped, don't return to pool, just close
-		go pc.c.Close()
+		pc.c.Close()
 		return
 	default:
 	}
 
+	pc.used = time.Now() // update used time
+
+	t.mu.Lock()
 	transtype := t.transportTypeFromConn(pc)
 	t.conns[transtype] = append(t.conns[transtype], pc)
+	t.mu.Unlock()
 }
 
 // Start starts the transport's connection manager.

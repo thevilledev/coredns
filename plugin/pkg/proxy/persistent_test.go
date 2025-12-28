@@ -129,11 +129,11 @@ func BenchmarkYield(b *testing.B) {
 		tr.Yield(c)
 		// Drain the yield channel so we can yield again without blocking/timing out
 		// We need to simulate the consumer side slightly to keep Yield flowing
-		tr.Lock()
+		tr.mu.Lock()
 		if len(tr.conns[typeUDP]) > 0 {
 			tr.conns[typeUDP] = tr.conns[typeUDP][:len(tr.conns[typeUDP])-1]
 		}
-		tr.Unlock()
+		tr.mu.Unlock()
 		runtime.Gosched()
 	}
 }

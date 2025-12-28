@@ -67,14 +67,14 @@ func (t *Transport) Dial(proto string) (*persistConn, bool, error) {
 
 	transtype := stringToTransportType(proto)
 
-	t.Lock()
+	t.mu.Lock()
 	// take the last used conn - complexity O(1)
 	if stack := t.conns[transtype]; len(stack) > 0 {
 		pc := stack[len(stack)-1]
 		if time.Since(pc.used) < t.expire {
 			// Found one, remove from pool and return this conn.
 			t.conns[transtype] = stack[:len(stack)-1]
-			t.Unlock()
+			t.mu.Unlock()
 
 			connCacheHitsCount.WithLabelValues(t.proxyName, t.addr, proto).Add(1)
 			return pc, true, nil
@@ -85,7 +85,7 @@ func (t *Transport) Dial(proto string) (*persistConn, bool, error) {
 		// transport methods anymore. So, it's safe to close them in a separate goroutine
 		go closeConns(stack)
 	}
-	t.Unlock()
+	t.mu.Unlock()
 
 	connCacheMissesCount.WithLabelValues(t.proxyName, t.addr, proto).Add(1)
 
