@@ -67,25 +67,27 @@ func (t *Transport) Dial(proto string) (*persistConn, bool, error) {
 
 	transtype := stringToTransportType(proto)
 
-	t.mu.Lock()
-	// take the last used conn - complexity O(1)
-	if stack := t.conns[transtype]; len(stack) > 0 {
-		pc := stack[len(stack)-1]
-		if time.Since(pc.used) < t.expire {
-			// Found one, remove from pool and return this conn.
-			t.conns[transtype] = stack[:len(stack)-1]
-			t.mu.Unlock()
+	var toClose []*persistConn
 
+	t.mu.Lock()
+	// FIFO: take the oldest conn (front of slice) for source port diversity
+	for len(t.conns[transtype]) > 0 {
+		pc := t.conns[transtype][0]
+		t.conns[transtype] = t.conns[transtype][1:]
+		if time.Since(pc.used) < t.expire {
+			t.mu.Unlock()
+			// Close expired connections collected during search
+			closeConns(toClose)
 			connCacheHitsCount.WithLabelValues(t.proxyName, t.addr, proto).Add(1)
 			return pc, true, nil
 		}
-		// clear entire cache if the last conn is expired
-		t.conns[transtype] = nil
-		// now, the connections being passed to closeConns() are not reachable from
-		// transport methods anymore. So, it's safe to close them in a separate goroutine
-		go closeConns(stack)
+		// Connection expired, collect for closing after unlock
+		toClose = append(toClose, pc)
 	}
 	t.mu.Unlock()
+
+	// Close expired connections
+	closeConns(toClose)
 
 	connCacheMissesCount.WithLabelValues(t.proxyName, t.addr, proto).Add(1)
 

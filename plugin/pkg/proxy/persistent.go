@@ -64,8 +64,9 @@ func closeConns(conns []*persistConn) {
 
 // cleanup removes connections from cache.
 func (t *Transport) cleanup(all bool) {
+	var toClose []*persistConn
+
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	staleTime := time.Now().Add(-t.expire)
 	for transtype, stack := range t.conns {
 		if len(stack) == 0 {
@@ -73,9 +74,7 @@ func (t *Transport) cleanup(all bool) {
 		}
 		if all {
 			t.conns[transtype] = nil
-			// now, the connections being passed to closeConns() are not reachable from
-			// transport methods anymore. So, it's safe to close them in a separate goroutine
-			go closeConns(stack)
+			toClose = append(toClose, stack...)
 			continue
 		}
 		if stack[0].used.After(staleTime) {
@@ -87,10 +86,12 @@ func (t *Transport) cleanup(all bool) {
 			return stack[i].used.After(staleTime)
 		})
 		t.conns[transtype] = stack[good:]
-		// now, the connections being passed to closeConns() are not reachable from
-		// transport methods anymore. So, it's safe to close them in a separate goroutine
-		go closeConns(stack[:good])
+		toClose = append(toClose, stack[:good]...)
 	}
+	t.mu.Unlock()
+
+	// Close connections after releasing lock
+	closeConns(toClose)
 }
 
 // Yield returns the connection to transport for reuse.

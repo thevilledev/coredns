@@ -35,8 +35,9 @@ func TestCached(t *testing.T) {
 	if !cached3 {
 		t.Error("Expected cached connection (c3)")
 	}
-	if c2 != c3 {
-		t.Error("Expected c2 == c3")
+	// FIFO: first yielded (c1) should be first out
+	if c1 != c3 {
+		t.Error("Expected c1 == c3 (FIFO order)")
 	}
 
 	tr.Yield(c3)
@@ -127,11 +128,10 @@ func BenchmarkYield(b *testing.B) {
 
 	for b.Loop() {
 		tr.Yield(c)
-		// Drain the yield channel so we can yield again without blocking/timing out
-		// We need to simulate the consumer side slightly to keep Yield flowing
+		// Simulate FIFO consumption: remove from front
 		tr.mu.Lock()
 		if len(tr.conns[typeUDP]) > 0 {
-			tr.conns[typeUDP] = tr.conns[typeUDP][:len(tr.conns[typeUDP])-1]
+			tr.conns[typeUDP] = tr.conns[typeUDP][1:]
 		}
 		tr.mu.Unlock()
 		runtime.Gosched()
