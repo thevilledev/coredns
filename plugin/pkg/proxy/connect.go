@@ -64,27 +64,20 @@ func (t *Transport) Dial(proto string) (*persistConn, bool, error) {
 
 	transtype := stringToTransportType(proto)
 
-	var toClose []*persistConn
-
 	t.mu.Lock()
 	// FIFO: take the oldest conn (front of slice) for source port diversity
 	for len(t.conns[transtype]) > 0 {
 		pc := t.conns[transtype][0]
 		t.conns[transtype] = t.conns[transtype][1:]
-		if time.Since(pc.used) < t.expire {
-			t.mu.Unlock()
-			// Close expired connections collected during search
-			closeConns(toClose)
-			connCacheHitsCount.WithLabelValues(t.proxyName, t.addr, proto).Add(1)
-			return pc, true, nil
+		if time.Since(pc.used) > t.expire {
+			pc.c.Close()
+			continue
 		}
-		// Connection expired, collect for closing after unlock
-		toClose = append(toClose, pc)
+		t.mu.Unlock()
+		connCacheHitsCount.WithLabelValues(t.proxyName, t.addr, proto).Add(1)
+		return pc, true, nil
 	}
 	t.mu.Unlock()
-
-	// Close expired connections
-	closeConns(toClose)
 
 	connCacheMissesCount.WithLabelValues(t.proxyName, t.addr, proto).Add(1)
 
