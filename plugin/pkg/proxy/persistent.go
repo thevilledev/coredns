@@ -109,16 +109,16 @@ func (t *Transport) Yield(pc *persistConn) {
 	pc.used = time.Now() // update used time
 
 	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	transtype := t.transportTypeFromConn(pc)
 
 	if t.maxIdleConns > 0 && len(t.conns[transtype]) >= t.maxIdleConns {
-		t.mu.Unlock()
 		pc.c.Close()
 		return
 	}
 
 	t.conns[transtype] = append(t.conns[transtype], pc)
-	t.mu.Unlock()
 }
 
 // Start starts the transport's connection manager.
