@@ -31,7 +31,7 @@ require (
 	github.com/oschwald/geoip2-golang/v2 v2.5.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
-	github.com/prometheus/common v0.72.0
+	github.com/prometheus/common v0.72.1
 	github.com/quic-go/quic-go v0.64.1
 	github.com/stretchr/testify v1.12.1
 	go.etcd.io/bbolt v1.5.0
@@ -58,7 +58,7 @@ require (
 	github.com/pires/go-proxyproto v0.15.0
 	github.com/prometheus/exporter-toolkit v0.20.0
 	go.uber.org/zap v1.28.0
-	golang.org/x/net v0.60.0
+	golang.org/x/net v0.61.0
 )
 
 require (
